@@ -81,7 +81,7 @@ class ELF:
         :param options readelf options: ["opt1", "opt2", "opt3", ..., "optN"]
         :returns raw output
         """
-        ret = subprocess.Popen(args=[self.__readelf_path] + options,
+        ret = subprocess.Popen(args=[self.__readelf_path.replace("/usr/bin/ccache ", "")] + options,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
         stdout, stderr = ret.communicate()
