@@ -2482,8 +2482,17 @@ static int xfrm_user_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 	int type, err;
 
 #ifdef CONFIG_COMPAT
+#if 0
+	/* google goldfish patch : for CTS fix with 32bit platform.
+	   https://android-review.googlesource.com/c/kernel/goldfish/+/851054 */
 	if (is_compat_task())
 		return -ENOTSUPP;
+#else
+	if (is_compat_task() && net) {
+		pr_info("%s: pass netlink msg of 32bit platform\n", __func__);
+		IP_INC_STATS(net, IPSTATS_MIB_COMPATXFRM);
+	}
+#endif
 #endif
 
 	type = nlh->nlmsg_type;

@@ -812,4 +812,10 @@ config INPUT_DRV2667_HAPTICS
 	  To compile this driver as a module, choose M here: the
 	  module will be called drv2667-haptics.
 
+config FLIP_COVER
+	tristate "Enable HALL"
+	default n
+	help
+	  Enable Hall Feature
+
 endif

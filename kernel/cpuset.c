@@ -172,6 +172,7 @@ typedef enum {
 	CS_SCHED_LOAD_BALANCE,
 	CS_SPREAD_PAGE,
 	CS_SPREAD_SLAB,
+	CS_SELECTIVE_BOOST,
 } cpuset_flagbits_t;
 
 /* convenient tests for these bits */
@@ -219,6 +220,11 @@ static struct cpuset top_cpuset = {
 	.flags = ((1 << CS_ONLINE) | (1 << CS_CPU_EXCLUSIVE) |
 		  (1 << CS_MEM_EXCLUSIVE)),
 };
+
+static inline int is_selective_boost_enabled(const struct cpuset *cs)
+{
+	return test_bit(CS_SELECTIVE_BOOST, &cs->flags);
+}
 
 /**
  * cpuset_for_each_child - traverse online children of a cpuset
@@ -322,6 +328,20 @@ static struct file_system_type cpuset_fs_type = {
 	.name = "cpuset",
 	.mount = cpuset_mount,
 };
+
+int cpuset_task_is_boosted(struct task_struct *p)
+{
+	struct cpuset *cpuset_for_task;
+	int ret = 0;
+
+	rcu_read_lock();
+	cpuset_for_task = task_cs(p);
+	ret = is_selective_boost_enabled(cpuset_for_task);
+	rcu_read_unlock();
+
+	return ret;
+}
+EXPORT_SYMBOL(cpuset_task_is_boosted);
 
 /*
  * Return in pmask the portion of a cpusets's cpus_allowed that
@@ -1505,6 +1525,28 @@ out_unlock:
 	return ret;
 }
 
+static int cpuset_allow_attach(struct cgroup_taskset *tset)
+{
+	const struct cred *cred = current_cred(), *tcred;
+	struct task_struct *task;
+	struct cgroup_subsys_state *css;
+	struct cpuset *cs;
+
+	cgroup_taskset_first(tset, &css);
+	cs = css_cs(css);
+
+	cgroup_taskset_for_each(task, css, tset) {
+		tcred = __task_cred(task);
+
+		if ((current != task) && !capable(CAP_SYS_ADMIN) &&
+		    !uid_eq(cred->euid, tcred->uid) &&
+		    !uid_eq(cred->euid, tcred->suid))
+			return -EACCES;
+	}
+
+	return 0;
+}
+
 static void cpuset_cancel_attach(struct cgroup_taskset *tset)
 {
 	struct cgroup_subsys_state *css;
@@ -1612,6 +1654,7 @@ typedef enum {
 	FILE_MEMORY_PRESSURE,
 	FILE_SPREAD_PAGE,
 	FILE_SPREAD_SLAB,
+	FILE_SELECTIVE_BOOST,
 } cpuset_filetype_t;
 
 static int cpuset_write_u64(struct cgroup_subsys_state *css, struct cftype *cft,
@@ -1651,6 +1694,9 @@ static int cpuset_write_u64(struct cgroup_subsys_state *css, struct cftype *cft,
 		break;
 	case FILE_SPREAD_SLAB:
 		retval = update_flag(CS_SPREAD_SLAB, cs, val);
+		break;
+	case FILE_SELECTIVE_BOOST:
+		retval = update_flag(CS_SELECTIVE_BOOST, cs, val);
 		break;
 	default:
 		retval = -EINVAL;
@@ -1811,6 +1857,8 @@ static u64 cpuset_read_u64(struct cgroup_subsys_state *css, struct cftype *cft)
 		return is_spread_page(cs);
 	case FILE_SPREAD_SLAB:
 		return is_spread_slab(cs);
+	case FILE_SELECTIVE_BOOST:
+		return is_selective_boost_enabled(cs);
 	default:
 		BUG();
 	}
@@ -1936,6 +1984,13 @@ static struct cftype files[] = {
 		.read_u64 = cpuset_read_u64,
 		.write_u64 = cpuset_write_u64,
 		.private = FILE_MEMORY_PRESSURE_ENABLED,
+	},
+
+	{
+		.name = "selective_boost",
+		.read_u64 = cpuset_read_u64,
+		.write_u64 = cpuset_write_u64,
+		.private = FILE_SELECTIVE_BOOST,
 	},
 
 	{ }	/* terminate */
@@ -2117,6 +2172,7 @@ struct cgroup_subsys cpuset_cgrp_subsys = {
 	.css_offline	= cpuset_css_offline,
 	.css_free	= cpuset_css_free,
 	.can_attach	= cpuset_can_attach,
+	.allow_attach   = cpuset_allow_attach,
 	.cancel_attach	= cpuset_cancel_attach,
 	.attach		= cpuset_attach,
 	.post_attach	= cpuset_post_attach,

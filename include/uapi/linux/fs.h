@@ -172,6 +172,7 @@ struct inodes_stat_t {
 #define FS_IOC32_GETVERSION		_IOR('v', 1, int)
 #define FS_IOC32_SETVERSION		_IOW('v', 2, int)
 
+#define FS_IOC_INVAL_MAPPING		_IO('f', 13)	/* CONFIG_EPM FMP */
 /*
  * File system encryption support
  */
@@ -193,6 +194,8 @@ struct inodes_stat_t {
 #define FS_ENCRYPTION_MODE_AES_256_CTS		4
 #define FS_ENCRYPTION_MODE_AES_128_CBC		5
 #define FS_ENCRYPTION_MODE_AES_128_CTS		6
+#define FS_ENCRYPTION_MODE_SPECK128_256_XTS	7
+#define FS_ENCRYPTION_MODE_SPECK128_256_CTS	8
 
 
 struct fscrypt_policy {

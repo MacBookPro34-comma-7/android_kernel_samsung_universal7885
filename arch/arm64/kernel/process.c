@@ -64,6 +64,9 @@ unsigned long __stack_chk_guard __read_mostly;
 EXPORT_SYMBOL(__stack_chk_guard);
 #endif
 
+#include <linux/exynos-ss.h>
+#include <soc/samsung/exynos-condbg.h>
+
 /*
  * Function pointers to optional machine specific functions
  */
@@ -136,7 +139,9 @@ void machine_power_off(void)
 
 /*
  * Restart requires that the secondary CPUs stop performing any activity
- * while the primary CPU resets the system. Systems with multiple CPUs must
+ * while the primary CPU resets the system. Systems with a single CPU can
+ * use soft_restart() as their machine descriptor's .restart hook, since that
+ * will cause the only available CPU to reset. Systems with multiple CPUs must
  * provide a HW restart implementation, to ensure that all CPUs reset at once.
  * This is required so that any code running after reset on the primary CPU
  * doesn't have to co-ordinate with other CPUs to ensure they aren't still
@@ -147,7 +152,9 @@ void machine_restart(char *cmd)
 {
 	/* Disable interrupts first */
 	local_irq_disable();
-	smp_send_stop();
+
+	if (!ecd_get_enable() || ecd_get_debug_mode() != MODE_DEBUG)
+		smp_send_stop();
 
 	/*
 	 * UpdateCapsule() depends on the system being reset via
@@ -155,6 +162,8 @@ void machine_restart(char *cmd)
 	 */
 	if (efi_enabled(EFI_RUNTIME_SERVICES))
 		efi_reboot(reboot_mode, NULL);
+
+	exynos_ss_post_reboot(cmd);
 
 	/* Now call the architecture specific reboot code. */
 	if (arm_pm_restart)
@@ -233,6 +242,16 @@ static void show_extra_register_data(struct pt_regs *regs, int nbytes)
 	set_fs(fs);
 }
 
+void show_extra_register_data_simple(struct pt_regs *regs, int nbytes)
+{
+	mm_segment_t fs;
+
+	fs = get_fs();
+	set_fs(KERNEL_DS);
+	show_data(regs->pc - nbytes, nbytes * 2, "PC");
+	set_fs(fs);
+}
+
 void __show_regs(struct pt_regs *regs)
 {
 	int i, top_reg;
@@ -246,6 +265,15 @@ void __show_regs(struct pt_regs *regs)
 		lr = regs->regs[30];
 		sp = regs->sp;
 		top_reg = 29;
+	}
+	if (!user_mode(regs)) {
+		exynos_ss_save_context(regs);
+		/*
+		 *  If you want to see more kernel events after panic,
+		 *  you should modify exynos_ss_set_enable's function 2nd parameter
+		 *  to true.
+		 */
+		exynos_ss_set_enable("log_kevents", false);
 	}
 
 	show_regs_print_info(KERN_DEFAULT);
@@ -307,8 +335,7 @@ void release_thread(struct task_struct *dead_task)
 
 int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 {
-	if (current->mm)
-		fpsimd_preserve_current_state();
+	fpsimd_preserve_current_state();
 	*dst = *src;
 	return 0;
 }
